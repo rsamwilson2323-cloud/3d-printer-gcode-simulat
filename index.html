@@ -1,0 +1,1781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>G-Code 3D Printer Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #2d2215; color: #e0e0e0; overflow: hidden; height: 100vh; display: flex; }
+
+  #viewer-panel {
+    flex: 1; position: relative; min-width: 0;
+  }
+  #three-canvas { width: 100%; height: 100%; display: block; }
+
+  #hud-top-left {
+    position: absolute; top: 14px; left: 14px;
+    background: rgba(45,34,21,0.9); border: 1px solid #6b5230; border-radius: 8px;
+    padding: 10px 16px; font-size: 12px; line-height: 1.7; backdrop-filter: blur(8px);
+    pointer-events: none; z-index: 10;
+  }
+  #hud-top-left .label { color: #b89860; }
+  #hud-top-left .val { color: #f5e6c8; font-weight: 500; }
+  #hud-top-left .highlight { color: #f5a623; }
+
+  #hud-bottom {
+    position: absolute; bottom: 14px; left: 14px; right: 14px;
+    display: flex; align-items: center; gap: 10px; z-index: 10; pointer-events: none;
+  }
+  #progress-bar-bg {
+    flex: 1; height: 4px; background: #6b5230; border-radius: 2px; overflow: hidden;
+  }
+  #progress-bar-fill {
+    height: 100%; width: 0%; background: #f5a623; border-radius: 2px; transition: width 0.2s;
+  }
+  #progress-text { font-size: 11px; color: #b89860; min-width: 38px; text-align: right; }
+
+  #speed-control {
+    position: absolute; bottom: 30px; left: 14px; z-index: 10;
+    display: flex; align-items: center; gap: 8px; font-size: 11px; color: #b89860;
+  }
+  #speed-control input[type=range] {
+    width: 200px; accent-color: #f5a623;
+  }
+
+  /* Right Panel */
+  #control-panel {
+    width: 370px; min-width: 370px; background: #2a1f10; border-left: 1px solid #5a4220;
+    display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden;
+  }
+  #control-panel::-webkit-scrollbar { width: 4px; }
+  #control-panel::-webkit-scrollbar-thumb { background: #6b5230; border-radius: 2px; }
+
+  .panel-section {
+    padding: 16px 18px; border-bottom: 1px solid #5a4220;
+  }
+  .panel-title {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
+    color: #c4973e; margin-bottom: 12px;
+  }
+
+  .preset-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  }
+  .preset-btn {
+    background: #3a2a12; border: 1px solid #6b5230; border-radius: 6px;
+    padding: 8px 10px; font-size: 11px; color: #e8d5a8; cursor: pointer;
+    font-family: 'Inter', sans-serif; text-align: left; transition: all 0.15s;
+  }
+  .preset-btn:hover { border-color: #f5a623; color: #fff5e0; background: #4a3518; }
+  .preset-btn .preset-name { font-weight: 500; display: block; margin-bottom: 2px; color: #f5e6c8; }
+  .preset-btn .preset-desc { font-size: 10px; color: #b89860; }
+
+  .form-group { margin-bottom: 12px; }
+  .form-label {
+    display: block; font-size: 11px; font-weight: 500; color: #c4973e;
+    margin-bottom: 5px;
+  }
+  .form-input, .form-select {
+    width: 100%; background: #3a2a12; border: 1px solid #6b5230; border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; color: #f5e6c8; font-family: 'Inter', sans-serif;
+    outline: none; transition: border-color 0.15s;
+  }
+  .form-input:focus, .form-select:focus { border-color: #f5a623; }
+  .form-select { cursor: pointer; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23b89860'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center;
+    background-color: #3a2a12;
+  }
+  textarea.form-input {
+    resize: vertical; min-height: 180px; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11px; line-height: 1.5;
+  }
+
+  .color-row { display: flex; gap: 6px; align-items: center; }
+  .color-swatch {
+    width: 28px; height: 28px; border-radius: 6px; border: 2px solid #6b5230;
+    cursor: pointer; transition: border-color 0.15s; flex-shrink: 0;
+  }
+  .color-swatch:hover, .color-swatch.active { border-color: #f5a623; }
+  .color-input-wrap { flex: 1; }
+
+  .btn-row { display: flex; gap: 8px; }
+  .btn {
+    flex: 1; padding: 10px 16px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    font-family: 'Inter', sans-serif; cursor: pointer; border: none; transition: all 0.15s;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .btn-primary { background: #f5a623; color: #1a1008; }
+  .btn-primary:hover { background: #ffc04d; }
+  .btn-primary:disabled { background: #5a4220; color: #8a7040; cursor: default; }
+  .btn-secondary { background: #3a2a12; color: #e8d5a8; border: 1px solid #6b5230; }
+  .btn-secondary:hover { border-color: #f5a623; color: #fff5e0; }
+
+  .stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .stat-card {
+    background: #3a2a12; border: 1px solid #6b5230; border-radius: 6px; padding: 10px;
+  }
+  .stat-label { font-size: 10px; color: #b89860; margin-bottom: 3px; }
+  .stat-value { font-size: 14px; font-weight: 600; color: #f5e6c8; }
+
+  .temp-bar-wrap { margin-top: 6px; }
+  .temp-bar-label { display: flex; justify-content: space-between; font-size: 10px; color: #b89860; margin-bottom: 3px; }
+  .temp-bar { height: 3px; background: #5a4220; border-radius: 2px; overflow: hidden; }
+  .temp-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .temp-hotend { background: #ef5350; }
+  .temp-bed { background: #ff9800; }
+
+  .layer-slider-wrap { display: flex; align-items: center; gap: 8px; }
+  .layer-slider-wrap input[type=range] { flex: 1; accent-color: #f5a623; }
+  .layer-slider-wrap .layer-val { font-size: 12px; color: #e8d5a8; min-width: 50px; text-align: right; }
+
+  .file-upload-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 10px 14px; background: #3a2a12; border: 1px dashed #6b5230;
+    border-radius: 6px; cursor: pointer; font-size: 12px; color: #e8d5a8;
+    font-family: 'Inter', sans-serif; transition: all 0.15s; text-align: center;
+  }
+  .file-upload-btn:hover { border-color: #f5a623; color: #fff5e0; background: #4a3518; }
+  .file-upload-btn .upload-icon { font-size: 16px; }
+
+  .parse-progress-bar {
+    width: 100%; height: 3px; background: #5a4220; border-radius: 2px; overflow: hidden; margin-top: 6px;
+  }
+  .parse-progress-fill {
+    height: 100%; background: #f5a623; border-radius: 2px; transition: width 0.15s; width: 0%;
+  }
+</style>
+</head>
+<body>
+
+<!-- Left: 3D Viewer -->
+<div id="viewer-panel">
+  <div id="three-canvas"></div>
+  <div id="hud-top-left">
+    <div><span class="label">Position </span><span class="val" id="hud-pos">X:0.0 Y:0.0 Z:0.0</span></div>
+    <div><span class="label">Layer </span><span class="val highlight" id="hud-layer">0 / 0</span></div>
+    <div><span class="label">Line </span><span class="val" id="hud-line">0 / 0</span></div>
+    <div><span class="label">Status </span><span class="val" id="hud-status">Idle</span></div>
+  </div>
+  <div id="speed-control">
+    <span>Speed</span>
+    <input type="range" id="speed-slider" min="1" max="10000" value="10" style="width:200px;">
+    <span id="speed-val">10%</span>
+  </div>
+  <div id="hud-bottom">
+    <div id="progress-bar-bg"><div id="progress-bar-fill"></div></div>
+    <span id="progress-text">0%</span>
+  </div>
+</div>
+
+<!-- Right: Control Panel -->
+<div id="control-panel">
+
+  <div class="panel-section">
+    <div class="panel-title">Preset G-Codes</div>
+    <div class="preset-grid">
+      <button class="preset-btn" onclick="loadPreset('cube')">
+        <span class="preset-name">Cube</span>
+        <span class="preset-desc">20mm calibration cube</span>
+      </button>
+      <button class="preset-btn" onclick="loadPreset('cylinder')">
+        <span class="preset-name">Cylinder</span>
+        <span class="preset-desc">20mm cylinder vase</span>
+      </button>
+      <button class="preset-btn" onclick="loadPreset('pyramid')">
+        <span class="preset-name">Pyramid</span>
+        <span class="preset-desc">Stepped pyramid</span>
+      </button>
+      <button class="preset-btn" onclick="loadPreset('spiral')">
+        <span class="preset-name">Spiral Vase</span>
+        <span class="preset-desc">Spiral vase mode</span>
+      </button>
+      <button class="preset-btn" onclick="loadPreset('star')">
+        <span class="preset-name">Star</span>
+        <span class="preset-desc">5-point star shape</span>
+      </button>
+      <button class="preset-btn" onclick="loadPreset('wave')">
+        <span class="preset-name">Wave Box</span>
+        <span class="preset-desc">Wavy-wall box</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-title">G-Code Input</div>
+    <div class="form-group" style="margin-bottom:8px;">
+      <label class="file-upload-btn" id="file-upload-label">
+        <input type="file" id="gcode-file" accept=".gcode,.gco,.g,.nc" style="display:none;">
+        <span class="upload-icon">📂</span> Upload .gcode File
+      </label>
+      <div id="file-info" style="display:none; margin-top:6px; font-size:10px; color:#b89860; background:#3a2a12; border:1px solid #6b5230; border-radius:6px; padding:8px 10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span id="file-name-display">—</span>
+          <span id="file-clear" style="cursor:pointer;color:#ef5350;font-size:12px;" title="Clear file">✕</span>
+        </div>
+        <div id="file-stats" style="margin-top:4px;color:#8a7040;">—</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <textarea class="form-input" id="gcode-input" placeholder="Paste your G-Code here...&#10;&#10;Example:&#10;G28&#10;G1 Z5 F3000&#10;G1 X10 Y10 Z0.2 F1500 E1&#10;G1 X30 Y10 E3&#10;..."></textarea>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-title">Print Settings</div>
+    <div class="form-group">
+      <label class="form-label">Filament Type</label>
+      <select class="form-select" id="filament-type">
+        <option value="PLA">PLA</option>
+        <option value="ABS">ABS</option>
+        <option value="PETG">PETG</option>
+        <option value="TPU">TPU</option>
+        <option value="Nylon">Nylon</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Filament Color</label>
+      <div class="color-row">
+        <div class="color-swatch active" style="background:#f5a623" data-color="#f5a623" onclick="pickColor(this)"></div>
+        <div class="color-swatch" style="background:#ef5350" data-color="#ef5350" onclick="pickColor(this)"></div>
+        <div class="color-swatch" style="background:#66bb6a" data-color="#66bb6a" onclick="pickColor(this)"></div>
+        <div class="color-swatch" style="background:#ffa726" data-color="#ffa726" onclick="pickColor(this)"></div>
+        <div class="color-swatch" style="background:#ab47bc" data-color="#ab47bc" onclick="pickColor(this)"></div>
+        <div class="color-swatch" style="background:#e0e0e0" data-color="#e0e0e0" onclick="pickColor(this)"></div>
+        <div class="color-input-wrap">
+          <input type="color" class="form-input" id="color-picker" value="#f5a623" style="padding:2px;height:28px;cursor:pointer;" onchange="setColor(this.value)">
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nozzle Diameter (mm)</label>
+      <select class="form-select" id="nozzle-dia">
+        <option value="0.2">0.2</option>
+        <option value="0.4" selected>0.4</option>
+        <option value="0.6">0.6</option>
+        <option value="0.8">0.8</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Layer Height (mm)</label>
+      <select class="form-select" id="layer-height">
+        <option value="0.1">0.1</option>
+        <option value="0.2" selected>0.2</option>
+        <option value="0.3">0.3</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-title">Controls</div>
+    <div class="btn-row" style="margin-bottom:8px;">
+      <button class="btn btn-primary" id="btn-start" onclick="startPrint()">▶ Start</button>
+      <button class="btn btn-secondary" id="btn-pause" onclick="pausePrint()">⏸ Pause</button>
+      <button class="btn btn-secondary" id="btn-reset" onclick="resetPrint()">⟲ Reset</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Layer Visibility</label>
+      <div class="layer-slider-wrap">
+        <input type="range" id="layer-slider" min="0" max="100" value="100" oninput="onLayerSlider(this.value)">
+        <span class="layer-val" id="layer-slider-val">All</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-title">Print Statistics</div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Lines</div>
+        <div class="stat-value" id="stat-lines">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Layers</div>
+        <div class="stat-value" id="stat-layers">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Filament Used</div>
+        <div class="stat-value" id="stat-filament">0mm</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Est. Time</div>
+        <div class="stat-value" id="stat-time">0s</div>
+      </div>
+    </div>
+    <div class="temp-bar-wrap">
+      <div class="temp-bar-label"><span>Hotend</span><span id="temp-hotend">0°C / 0°C</span></div>
+      <div class="temp-bar"><div class="temp-bar-fill temp-hotend" id="temp-hotend-bar" style="width:0%"></div></div>
+    </div>
+    <div class="temp-bar-wrap" style="margin-top:8px;">
+      <div class="temp-bar-label"><span>Bed</span><span id="temp-bed">0°C / 0°C</span></div>
+      <div class="temp-bar"><div class="temp-bar-fill temp-bed" id="temp-bed-bar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.183.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.183.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ==================== SCENE SETUP ====================
+const container = document.getElementById('three-canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf7d36b);
+scene.fog = new THREE.FogExp2(0xf7d36b, 0.0006);
+
+const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
+camera.position.set(200, 280, 350);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(container.clientWidth, container.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.6;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 60, 0);
+controls.minDistance = 80;
+controls.maxDistance = 800;
+
+// ==================== LIGHTING ====================
+const ambientLight = new THREE.AmbientLight(0xfff0c0, 2.5);
+ambientLight.name = 'ambientLight';
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 3.2);
+dirLight.name = 'dirLight';
+dirLight.position.set(50, 100, 70);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 250;
+dirLight.shadow.camera.left = -250;
+dirLight.shadow.camera.right = 250;
+dirLight.shadow.camera.top = 250;
+dirLight.shadow.camera.bottom = -250;
+dirLight.shadow.bias = -0.001;
+dirLight.shadow.normalBias = 0.02;
+scene.add(dirLight);
+
+const fillLight = new THREE.DirectionalLight(0xffe0a0, 1.5);
+fillLight.name = 'fillLight';
+fillLight.position.set(-40, 60, -40);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xf5a623, 0.8);
+rimLight.name = 'rimLight';
+rimLight.position.set(-20, 30, 60);
+scene.add(rimLight);
+
+const backLight = new THREE.DirectionalLight(0xffd080, 0.5);
+backLight.position.set(0, 50, -80);
+scene.add(backLight);
+
+const bottomFill = new THREE.HemisphereLight(0xfff5d0, 0xe8a830, 1.4);
+bottomFill.name = 'hemiLight';
+scene.add(bottomFill);
+
+// ==================== BUILD 3D PRINTER (Detailed Ender 3) ====================
+const printerGroup = new THREE.Group();
+printerGroup.name = 'printerGroup';
+scene.add(printerGroup);
+
+// === Materials ===
+const aluminumMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, metalness: 0.8, roughness: 0.25 });
+const aluminumLightMat = new THREE.MeshStandardMaterial({ color: 0x3a3a40, metalness: 0.75, roughness: 0.3 });
+const accentMat = new THREE.MeshStandardMaterial({ color: 0xf5a623, metalness: 0.5, roughness: 0.3, emissive: 0x6a3a00, emissiveIntensity: 0.15 });
+const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a20, metalness: 0.6, roughness: 0.4 });
+const plasticBlack = new THREE.MeshStandardMaterial({ color: 0x222228, metalness: 0.1, roughness: 0.7 });
+const plasticRed = new THREE.MeshStandardMaterial({ color: 0xcc3333, metalness: 0.1, roughness: 0.6 });
+const steelMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.92, roughness: 0.08 });
+const brassMat = new THREE.MeshStandardMaterial({ color: 0xc8a84e, metalness: 0.85, roughness: 0.15 });
+const rubberMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.0, roughness: 0.95 });
+const pcbGreen = new THREE.MeshStandardMaterial({ color: 0x2d6b30, metalness: 0.3, roughness: 0.6 });
+const lcdBlue = new THREE.MeshStandardMaterial({ color: 0x1a3a6a, metalness: 0.1, roughness: 0.3, emissive: 0x0a1a3a, emissiveIntensity: 0.3 });
+const wireMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.2, roughness: 0.8 });
+const beltMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.05, roughness: 0.9 });
+const springMat = new THREE.MeshStandardMaterial({ color: 0xdddd44, metalness: 0.6, roughness: 0.3 });
+const glassMat = new THREE.MeshStandardMaterial({ color: 0xf0e8d0, metalness: 0.05, roughness: 0.2, transparent: true, opacity: 0.85 });
+
+// === Ender 3 bed: 220x220mm, build volume 220x220x250mm ===
+const BED_W = 220, BED_D = 220, BUILD_H = 250;
+const halfW = BED_W / 2 + 15, halfD = BED_D / 2 + 15;
+
+// Helper: create V-slot extrusion profile (simplified as box with groove lines)
+function createVSlotExtrusion(length, isVertical) {
+  const group = new THREE.Group();
+  const size = 8;
+  // Main body
+  const main = new THREE.Mesh(new THREE.BoxGeometry(size, length, size), aluminumMat);
+  main.castShadow = true;
+  group.add(main);
+  // V-groove channels (4 sides)
+  const grooveGeo = new THREE.BoxGeometry(size + 0.5, length, 2);
+  const grooveMat = new THREE.MeshStandardMaterial({ color: 0x1e1e22, metalness: 0.7, roughness: 0.35 });
+  [0, Math.PI / 2].forEach(r => {
+    const groove = new THREE.Mesh(grooveGeo, grooveMat);
+    groove.rotation.y = r;
+    group.add(groove);
+  });
+  // Corner chamfers
+  const chamferGeo = new THREE.BoxGeometry(1.5, length, 1.5);
+  const chamferMat = new THREE.MeshStandardMaterial({ color: 0x353538, metalness: 0.75, roughness: 0.3 });
+  [[-3.2, 0, -3.2], [3.2, 0, -3.2], [-3.2, 0, 3.2], [3.2, 0, 3.2]].forEach(p => {
+    const ch = new THREE.Mesh(chamferGeo, chamferMat);
+    ch.position.set(...p);
+    ch.rotation.y = Math.PI / 4;
+    group.add(ch);
+  });
+  return group;
+}
+
+// Helper: create stepper motor
+function createStepperMotor() {
+  const group = new THREE.Group();
+  // NEMA 17 body (42×42×40mm)
+  const body = new THREE.Mesh(new THREE.BoxGeometry(14, 14, 14), darkMat);
+  body.castShadow = true;
+  group.add(body);
+  // Front plate (circular raised)
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 1, 16), aluminumLightMat);
+  plate.rotation.x = Math.PI / 2;
+  plate.position.z = 7.5;
+  group.add(plate);
+  // Shaft
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 8, 8), steelMat);
+  shaft.rotation.x = Math.PI / 2;
+  shaft.position.z = 12;
+  group.add(shaft);
+  // Connector
+  const conn = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 1.5), new THREE.MeshStandardMaterial({ color: 0xf0f0f0, metalness: 0.1, roughness: 0.8 }));
+  conn.position.set(0, -4, -7);
+  group.add(conn);
+  // Label sticker
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshStandardMaterial({ color: 0xe8e0d0, metalness: 0, roughness: 1 }));
+  label.position.z = -7.05;
+  group.add(label);
+  return group;
+}
+
+// Helper: create roller wheel
+function createRollerWheel(radius) {
+  const group = new THREE.Group();
+  const wheel = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 3.5, 16), plasticBlack);
+  wheel.rotation.x = Math.PI / 2;
+  group.add(wheel);
+  // Bearing center
+  const bearing = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.35, radius * 0.35, 4, 12), steelMat);
+  bearing.rotation.x = Math.PI / 2;
+  group.add(bearing);
+  return group;
+}
+
+// ==================== BASE Y-AXIS FRAME ====================
+// Bottom front horizontal extrusion
+const yAxisFront = createVSlotExtrusion(BED_D + 40, false);
+yAxisFront.rotation.z = Math.PI / 2;
+yAxisFront.position.set(0, 4, halfD + 4);
+printerGroup.add(yAxisFront);
+
+// Bottom left/right horizontal extrusions (Y-axis rails)
+[-1, 1].forEach(side => {
+  const rail = createVSlotExtrusion(BED_D + 30, false);
+  rail.rotation.x = Math.PI / 2;
+  rail.position.set(side * (halfW - 2), 4, 0);
+  printerGroup.add(rail);
+});
+
+// Y-axis stepper motor (rear left)
+const yMotor = createStepperMotor();
+yMotor.position.set(-(halfW - 8), 4, -(halfD + 2));
+yMotor.rotation.x = Math.PI / 2;
+printerGroup.add(yMotor);
+
+// Y-axis belt (simple thin box along bed travel)
+const yBelt = new THREE.Mesh(new THREE.BoxGeometry(1, 1.5, BED_D + 10), beltMat);
+yBelt.position.set(0, 2, 0);
+printerGroup.add(yBelt);
+
+// ==================== HEATED BED ASSEMBLY ====================
+// Bed carriage plate (aluminum)
+const bedCarriage = new THREE.Mesh(new THREE.BoxGeometry(BED_W + 10, 2, BED_D + 10), aluminumLightMat);
+bedCarriage.position.y = 8;
+bedCarriage.castShadow = true;
+bedCarriage.receiveShadow = true;
+printerGroup.add(bedCarriage);
+
+// Heated bed PCB (slightly smaller)
+const heatedBedPCB = new THREE.Mesh(new THREE.BoxGeometry(BED_W + 5, 1, BED_D + 5), pcbGreen);
+heatedBedPCB.position.y = 9.5;
+printerGroup.add(heatedBedPCB);
+
+// Build surface (glass/buildtak)
+const buildSurface = new THREE.Mesh(new THREE.BoxGeometry(BED_W, 1.5, BED_D), glassMat);
+buildSurface.name = 'buildPlate';
+buildSurface.position.y = 10.75;
+buildSurface.receiveShadow = true;
+printerGroup.add(buildSurface);
+
+// Bed leveling springs (4 corners)
+const springPositions = [
+  [-(BED_W/2 - 15), 0, -(BED_D/2 - 15)],
+  [(BED_W/2 - 15), 0, -(BED_D/2 - 15)],
+  [-(BED_W/2 - 15), 0, (BED_D/2 - 15)],
+  [(BED_W/2 - 15), 0, (BED_D/2 - 15)]
+];
+springPositions.forEach(p => {
+  // Spring
+  const spring = new THREE.Mesh(new THREE.CylinderGeometry(3, 3.5, 5, 12, 4, true), springMat);
+  spring.position.set(p[0], 5, p[2]);
+  printerGroup.add(spring);
+  // Leveling knob
+  const knob = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 2, 6), plasticRed);
+  knob.position.set(p[0], 1, p[2]);
+  printerGroup.add(knob);
+  // Thumb grip ridges on knob
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 1), plasticRed);
+    ridge.position.set(p[0] + Math.cos(a) * 5, 1, p[2] + Math.sin(a) * 5);
+    ridge.rotation.y = -a;
+    printerGroup.add(ridge);
+  }
+});
+
+// Bed roller wheels (3 per side rail)
+[-1, 1].forEach(side => {
+  [-(BED_D/2 - 20), 0, (BED_D/2 - 20)].forEach(zOff => {
+    const wheel = createRollerWheel(4);
+    wheel.position.set(side * (halfW - 2), 5, zOff);
+    printerGroup.add(wheel);
+  });
+});
+
+// Grid on bed surface
+const gridHelper = new THREE.GridHelper(BED_W, BED_W / 10, 0x8a7040, 0x6a5530);
+gridHelper.name = 'bedGrid';
+gridHelper.position.y = 11.6;
+printerGroup.add(gridHelper);
+
+// Bed clips (binder clips on 2 sides)
+[-1, 1].forEach(side => {
+  const clipBody = new THREE.Mesh(new THREE.BoxGeometry(15, 3, 6), darkMat);
+  clipBody.position.set(side * (BED_W / 2 - 5), 12.5, 0);
+  printerGroup.add(clipBody);
+  const clipHandle = new THREE.Mesh(new THREE.TorusGeometry(3, 0.5, 6, 12, Math.PI), steelMat);
+  clipHandle.position.set(side * (BED_W / 2 - 5), 14, 0);
+  clipHandle.rotation.x = Math.PI / 2;
+  printerGroup.add(clipHandle);
+});
+
+// ==================== VERTICAL Z-AXIS FRAME ====================
+// Two vertical extrusions (left and right uprights)
+const frameH = BUILD_H + 50;
+[-1, 1].forEach(side => {
+  const upright = createVSlotExtrusion(frameH, true);
+  upright.position.set(side * (halfW - 2), frameH / 2, -(halfD + 4));
+  upright.castShadow = true;
+  printerGroup.add(upright);
+});
+
+// Top horizontal crossbar extrusion
+const topBar = createVSlotExtrusion(BED_W + 30, false);
+topBar.rotation.z = Math.PI / 2;
+topBar.position.set(0, frameH, -(halfD + 4));
+printerGroup.add(topBar);
+
+// Top rear support brace (diagonal not easy, so horizontal bar)
+const rearBrace = createVSlotExtrusion(BED_D * 0.6, false);
+rearBrace.rotation.x = Math.PI / 2;
+rearBrace.position.set(0, frameH, -(halfD + 20));
+printerGroup.add(rearBrace);
+
+// ==================== Z-AXIS LEAD SCREWS & RODS ====================
+const zRodMat = steelMat;
+
+[-1, 1].forEach(side => {
+  // Smooth rod
+  const smoothRod = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, frameH - 10, 12), steelMat);
+  smoothRod.position.set(side * (halfW - 14), frameH / 2 - 5, -(halfD + 4));
+  printerGroup.add(smoothRod);
+
+  // Lead screw (threaded look)
+  const leadScrew = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, frameH - 20, 12), steelMat);
+  leadScrew.position.set(side * (halfW - 2), frameH / 2 - 5, -(halfD + 4));
+  printerGroup.add(leadScrew);
+  // Thread lines on lead screw (simplified spiral rings)
+  for (let h = 8; h < frameH - 20; h += 4) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.8, 0.3, 4, 12), steelMat);
+    ring.position.set(side * (halfW - 2), h, -(halfD + 4));
+    ring.rotation.x = Math.PI / 2;
+    printerGroup.add(ring);
+  }
+
+  // Z stepper motor at bottom
+  const zMotor = createStepperMotor();
+  zMotor.position.set(side * (halfW - 2), 2, -(halfD + 4));
+  zMotor.rotation.x = -Math.PI / 2;
+  printerGroup.add(zMotor);
+
+  // Coupler between motor and lead screw
+  const coupler = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 8, 12), new THREE.MeshStandardMaterial({ color: 0xccaa44, metalness: 0.6, roughness: 0.3 }));
+  coupler.position.set(side * (halfW - 2), 16, -(halfD + 4));
+  printerGroup.add(coupler);
+});
+
+// ==================== X-AXIS GANTRY ====================
+const xRail = new THREE.Group();
+xRail.name = 'xRail';
+
+// X-axis extrusion bar
+const xExtrusion = createVSlotExtrusion(BED_W + 20, false);
+xExtrusion.rotation.z = Math.PI / 2;
+xRail.add(xExtrusion);
+
+// X-axis belt along the bar
+const xBelt = new THREE.Mesh(new THREE.BoxGeometry(BED_W + 10, 1.5, 1), beltMat);
+xBelt.position.y = -3;
+xRail.add(xBelt);
+
+// X-axis idler pulley (right side)
+const xIdler = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 3, 16), steelMat);
+xIdler.rotation.z = Math.PI / 2;
+xIdler.position.set((BED_W / 2 + 8), 0, 0);
+xRail.add(xIdler);
+
+// X motor (left side of gantry)
+const xMotor = createStepperMotor();
+xMotor.rotation.y = Math.PI / 2;
+xMotor.position.set(-(BED_W / 2 + 12), 0, 0);
+xRail.add(xMotor);
+
+// X gantry brackets connecting to Z rods (left + right)
+[-1, 1].forEach(side => {
+  const bracket = new THREE.Mesh(new THREE.BoxGeometry(10, 18, 12), plasticBlack);
+  bracket.position.set(side * (halfW - 2), 0, 0);
+  bracket.castShadow = true;
+  xRail.add(bracket);
+  // Linear bearing housing
+  const lBearing = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 14, 12), darkMat);
+  lBearing.position.set(side * (halfW - 14), 0, 0);
+  xRail.add(lBearing);
+});
+
+xRail.position.set(0, 40, -(halfD + 4));
+printerGroup.add(xRail);
+
+// ==================== PRINT HEAD ASSEMBLY ====================
+const headGroup = new THREE.Group();
+headGroup.name = 'printHead';
+
+// Carriage plate
+const carriagePlate = new THREE.Mesh(new THREE.BoxGeometry(16, 22, 3), plasticBlack);
+carriagePlate.position.z = 4;
+headGroup.add(carriagePlate);
+
+// Roller wheels on carriage (3 wheels: top 2, bottom 1)
+[[6, 8, 5], [-6, 8, 5], [0, -8, 5]].forEach(p => {
+  const w = createRollerWheel(3.5);
+  w.position.set(...p);
+  headGroup.add(w);
+});
+
+// Heatsink (aluminum fins)
+const heatsinkGroup = new THREE.Group();
+for (let i = 0; i < 7; i++) {
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(12, 1.2, 10), aluminumLightMat);
+  fin.position.y = -4 - i * 1.8;
+  heatsinkGroup.add(fin);
+}
+// Heatsink body
+const heatBlock = new THREE.Mesh(new THREE.BoxGeometry(10, 13, 8), aluminumLightMat);
+heatBlock.position.y = -10;
+heatsinkGroup.add(heatBlock);
+headGroup.add(heatsinkGroup);
+
+// Heat break (narrow tube between heatsink and hot block)
+const heatBreak = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 6, 8), steelMat);
+heatBreak.position.y = -19;
+headGroup.add(heatBreak);
+
+// Hot block (aluminum heating block)
+const hotBlock = new THREE.Mesh(new THREE.BoxGeometry(10, 7, 8), aluminumLightMat);
+hotBlock.position.y = -24;
+headGroup.add(hotBlock);
+
+// Heater cartridge (sticking out of hot block)
+const heaterCartridge = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 14, 8), steelMat);
+heaterCartridge.rotation.z = Math.PI / 2;
+heaterCartridge.position.set(0, -24, 0);
+headGroup.add(heaterCartridge);
+
+// Thermistor (tiny bead on hot block)
+const thermistor = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.3, roughness: 0.5 }));
+thermistor.position.set(4, -22, 4.5);
+headGroup.add(thermistor);
+
+// Nozzle (brass)
+const nozzle = new THREE.Mesh(new THREE.ConeGeometry(2, 4, 6), brassMat);
+nozzle.name = 'nozzle';
+nozzle.position.y = -29.5;
+nozzle.rotation.x = Math.PI;
+headGroup.add(nozzle);
+
+// Nozzle tip
+const nozzleTip = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.5, 6), brassMat);
+nozzleTip.position.y = -31.5;
+headGroup.add(nozzleTip);
+
+// Part cooling fan (radial/blower style on the left)
+const partFanGroup = new THREE.Group();
+const partFanBody = new THREE.Mesh(new THREE.BoxGeometry(14, 14, 6), plasticBlack);
+partFanGroup.add(partFanBody);
+// Fan intake circle
+const fanIntake = new THREE.Mesh(new THREE.RingGeometry(2, 5.5, 16), new THREE.MeshStandardMaterial({ color: 0x333340, metalness: 0.5, roughness: 0.4, side: THREE.DoubleSide }));
+fanIntake.position.z = 3.1;
+partFanGroup.add(fanIntake);
+// Fan grille lines
+for (let i = 0; i < 4; i++) {
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 0.3), new THREE.MeshStandardMaterial({ color: 0x444450, metalness: 0.5, roughness: 0.4 }));
+  bar.position.set(0, -3 + i * 2, 3.2);
+  partFanGroup.add(bar);
+}
+partFanGroup.position.set(-13, -8, 0);
+headGroup.add(partFanGroup);
+
+// Fan duct (directs air to nozzle area)
+const fanDuct = new THREE.Mesh(new THREE.BoxGeometry(4, 12, 5), plasticBlack);
+fanDuct.position.set(-10, -20, 0);
+headGroup.add(fanDuct);
+const ductNozzle = new THREE.Mesh(new THREE.BoxGeometry(6, 2, 8), plasticBlack);
+ductNozzle.position.set(-6, -27, 0);
+headGroup.add(ductNozzle);
+
+// Hotend cooling fan (40mm axial, on the right)
+const hotendFanGroup = new THREE.Group();
+const hotendFanBody = new THREE.Mesh(new THREE.BoxGeometry(14, 14, 4), plasticBlack);
+hotendFanGroup.add(hotendFanBody);
+const hotendFanIntake = new THREE.Mesh(new THREE.RingGeometry(2, 5.5, 16), new THREE.MeshStandardMaterial({ color: 0x333340, metalness: 0.5, roughness: 0.4, side: THREE.DoubleSide }));
+hotendFanIntake.position.z = 2.1;
+hotendFanGroup.add(hotendFanIntake);
+// Fan blades hint
+for (let i = 0; i < 5; i++) {
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(8, 0.5, 0.2), new THREE.MeshStandardMaterial({ color: 0x444450, metalness: 0.5, roughness: 0.4 }));
+  blade.position.z = 2.15;
+  blade.rotation.z = (i / 5) * Math.PI;
+  hotendFanGroup.add(blade);
+}
+hotendFanGroup.position.set(13, -8, 0);
+headGroup.add(hotendFanGroup);
+
+// Wires coming from the hotend (bundle)
+const wireBundle = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 30, 8), wireMat);
+wireBundle.position.set(6, 10, 4);
+wireBundle.rotation.z = 0.2;
+headGroup.add(wireBundle);
+
+// Bowden tube connector (top of heatsink)
+const bowdenConnector = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 4, 8), steelMat);
+bowdenConnector.position.y = 1;
+headGroup.add(bowdenConnector);
+
+headGroup.position.set(0, 40, -(halfD + 4));
+printerGroup.add(headGroup);
+
+// ==================== FILAMENT PATH & SPOOL ====================
+// Spool holder arm (on top bar)
+const spoolArm = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 30, 8), steelMat);
+spoolArm.name = 'spoolHolder';
+spoolArm.rotation.z = Math.PI / 2;
+spoolArm.position.set(0, frameH + 15, -(halfD + 4));
+printerGroup.add(spoolArm);
+
+// Spool hub
+const spoolHub = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 28, 12), plasticBlack);
+spoolHub.rotation.z = Math.PI / 2;
+spoolHub.position.set(0, frameH + 15, -(halfD + 4));
+printerGroup.add(spoolHub);
+
+// Filament spool (torus + flanges)
+const spoolMat = new THREE.MeshStandardMaterial({ color: 0x7eb8f0, metalness: 0.3, roughness: 0.6 });
+const spool = new THREE.Mesh(new THREE.TorusGeometry(16, 8, 16, 32), spoolMat);
+spool.name = 'filamentSpool';
+spool.rotation.y = Math.PI / 2;
+spool.position.set(0, frameH + 15, -(halfD + 4));
+printerGroup.add(spool);
+
+// Spool flanges
+[-12, 12].forEach(x => {
+  const flange = new THREE.Mesh(new THREE.CylinderGeometry(24, 24, 1, 24), new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.2, roughness: 0.7, transparent: true, opacity: 0.5 }));
+  flange.rotation.z = Math.PI / 2;
+  flange.position.set(x, frameH + 15, -(halfD + 4));
+  printerGroup.add(flange);
+});
+
+// Bowden tube (PTFE tube from extruder to hotend) - simplified as a curved tube
+const bowdenCurve = new THREE.QuadraticBezierCurve3(
+  new THREE.Vector3(30, frameH - 20, -(halfD + 4)),
+  new THREE.Vector3(20, frameH + 5, -(halfD + 10)),
+  new THREE.Vector3(0, 40, -(halfD + 4))
+);
+const bowdenGeo = new THREE.TubeGeometry(bowdenCurve, 20, 1.5, 8, false);
+const bowdenTube = new THREE.Mesh(bowdenGeo, new THREE.MeshStandardMaterial({ color: 0xf0f0e8, metalness: 0.1, roughness: 0.4, transparent: true, opacity: 0.7 }));
+printerGroup.add(bowdenTube);
+
+// Extruder motor + assembly (on frame near top-left)
+const extruderGroup = new THREE.Group();
+const extMotor = createStepperMotor();
+extruderGroup.add(extMotor);
+// Extruder lever arm
+const extLever = new THREE.Mesh(new THREE.BoxGeometry(6, 16, 3), plasticRed);
+extLever.position.set(-5, 4, 8);
+extruderGroup.add(extLever);
+// Extruder gear (brass)
+const extGear = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 4, 12), brassMat);
+extGear.rotation.x = Math.PI / 2;
+extGear.position.set(0, 0, 9);
+extruderGroup.add(extGear);
+// Tensioner spring
+const extSpring = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 10, 8), springMat);
+extSpring.position.set(-8, 4, 9);
+extruderGroup.add(extSpring);
+
+extruderGroup.position.set(halfW - 10, frameH - 30, -(halfD + 4));
+extruderGroup.rotation.y = -Math.PI / 2;
+printerGroup.add(extruderGroup);
+
+// ==================== ELECTRONICS ====================
+// Control box / mainboard enclosure (under bed, front)
+const controlBox = new THREE.Mesh(new THREE.BoxGeometry(70, 14, 50), darkMat);
+controlBox.position.set(-(halfW - 30), -3, halfD - 20);
+controlBox.castShadow = true;
+printerGroup.add(controlBox);
+// Ventilation slots
+for (let i = 0; i < 6; i++) {
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(8, 12, 1), new THREE.MeshStandardMaterial({ color: 0x0a0a0e, metalness: 0.3, roughness: 0.6 }));
+  slot.position.set(-(halfW - 30) + (-20 + i * 8), -3, halfD - 20 + 25.5);
+  printerGroup.add(slot);
+}
+
+// Power supply (right side, under bed)
+const psuBox = new THREE.Mesh(new THREE.BoxGeometry(45, 18, 70), darkMat);
+psuBox.position.set((halfW - 20), -1, 0);
+psuBox.castShadow = true;
+printerGroup.add(psuBox);
+// PSU fan grille
+const psuFan = new THREE.Mesh(new THREE.RingGeometry(5, 8, 16), new THREE.MeshStandardMaterial({ color: 0x333340, metalness: 0.4, roughness: 0.5, side: THREE.DoubleSide }));
+psuFan.position.set((halfW - 20) + 23, -1, 0);
+psuFan.rotation.y = Math.PI / 2;
+printerGroup.add(psuFan);
+// PSU power switch
+const psuSwitch = new THREE.Mesh(new THREE.BoxGeometry(3, 6, 8), plasticRed);
+psuSwitch.position.set((halfW - 20) + 23, -1, -20);
+printerGroup.add(psuSwitch);
+// PSU label
+const psuLabel = new THREE.Mesh(new THREE.PlaneGeometry(20, 8), new THREE.MeshStandardMaterial({ color: 0xf5f5e0, metalness: 0, roughness: 1 }));
+psuLabel.position.set((halfW - 20) + 23.1, 4, 15);
+psuLabel.rotation.y = Math.PI / 2;
+printerGroup.add(psuLabel);
+
+// ==================== LCD DISPLAY ====================
+const lcdGroup = new THREE.Group();
+// LCD enclosure
+const lcdCase = new THREE.Mesh(new THREE.BoxGeometry(55, 28, 6), plasticBlack);
+lcdGroup.add(lcdCase);
+// Screen
+const lcdScreen = new THREE.Mesh(new THREE.PlaneGeometry(40, 16), lcdBlue);
+lcdScreen.position.set(0, 4, 3.1);
+lcdGroup.add(lcdScreen);
+// Rotary knob
+const lcdKnob = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 5, 16), darkMat);
+lcdKnob.rotation.x = Math.PI / 2;
+lcdKnob.position.set(18, -8, 4);
+lcdGroup.add(lcdKnob);
+// Knob grip lines
+for (let i = 0; i < 8; i++) {
+  const a = (i / 8) * Math.PI * 2;
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 5), steelMat);
+  grip.position.set(18 + Math.cos(a) * 3.5, -8 + Math.sin(a) * 3.5, 4);
+  lcdGroup.add(grip);
+}
+// SD card slot
+const sdSlot = new THREE.Mesh(new THREE.BoxGeometry(12, 1.5, 2), darkMat);
+sdSlot.position.set(-15, -12, 3);
+lcdGroup.add(sdSlot);
+// Reset button
+const resetBtn = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 8), plasticRed);
+resetBtn.rotation.x = Math.PI / 2;
+resetBtn.position.set(-18, -8, 4);
+lcdGroup.add(resetBtn);
+
+lcdGroup.position.set(-(halfW + 10), frameH / 2, halfD + 8);
+lcdGroup.rotation.y = -0.3;
+printerGroup.add(lcdGroup);
+
+// ==================== CABLE MANAGEMENT ====================
+// Wire loom from hotend going to mainboard
+const wireLoom = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 60, 8), wireMat);
+wireLoom.position.set(halfW - 5, frameH / 2 - 20, -(halfD + 8));
+wireLoom.rotation.z = 0.1;
+printerGroup.add(wireLoom);
+
+// Cable chain hints (segmented tube near bed)
+for (let i = 0; i < 8; i++) {
+  const chainLink = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 4), darkMat);
+  chainLink.position.set(-(halfW + 3), 7, -(halfD/2) + i * 6);
+  printerGroup.add(chainLink);
+}
+
+// ==================== FEET ====================
+const footPositions = [
+  [-(halfW - 5), -8, -(halfD - 5)],
+  [(halfW - 5), -8, -(halfD - 5)],
+  [-(halfW - 5), -8, (halfD - 5)],
+  [(halfW - 5), -8, (halfD - 5)]
+];
+footPositions.forEach(p => {
+  const foot = new THREE.Mesh(new THREE.CylinderGeometry(6, 7, 4, 12), rubberMat);
+  foot.position.set(...p);
+  printerGroup.add(foot);
+});
+
+// ==================== FLOOR ====================
+const floorGeo = new THREE.PlaneGeometry(1200, 1200);
+const floorMat = new THREE.MeshStandardMaterial({ color: 0xd4a830, metalness: 0.2, roughness: 0.9 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.name = 'floor';
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -10;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// ==================== GCODE PARSER & STATE ====================
+let filamentColor = '#f5a623';
+let parsedMoves = [];
+let printIndex = 0;
+let printing = false;
+let paused = false;
+let printSpeed = 10;
+let totalE = 0;
+let currentLayer = 0;
+let totalLayers = 0;
+let maxLayerVisible = Infinity;
+let hotendTarget = 0, bedTarget = 0, hotendCurrent = 0, bedCurrent = 0;
+
+// Print lines group
+const printGroup = new THREE.Group();
+printGroup.name = 'printedObject';
+scene.add(printGroup);
+
+// Trail material
+let trailMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(filamentColor), metalness: 0.15, roughness: 0.45, emissive: new THREE.Color(filamentColor), emissiveIntensity: 0.15 });
+
+// Supported G-code commands (everything else is silently filtered)
+const SUPPORTED_G = new Set(['G0','G1','G28','G90','G91','G92']);
+const SUPPORTED_M = new Set(['M82','M83','M104','M109','M140','M190']);
+
+// Fast parameter extraction without regex (much faster for 100k+ lines)
+function extractParam(line, ch) {
+  const idx = line.indexOf(ch);
+  if (idx === -1) return NaN;
+  let end = idx + 1;
+  const len = line.length;
+  // skip optional minus sign
+  if (end < len && line.charCodeAt(end) === 45) end++;
+  while (end < len) {
+    const c = line.charCodeAt(end);
+    if ((c >= 48 && c <= 57) || c === 46) end++;
+    else break;
+  }
+  return end > idx + 1 ? parseFloat(line.substring(idx + 1, end)) : NaN;
+}
+
+function parseGCode(gcodeStr) {
+  const lines = gcodeStr.split('\n');
+  const totalLines = lines.length;
+  // Pre-allocate array with estimated capacity
+  const moves = [];
+  moves.length = 0;
+  let curX = 0, curY = 0, curZ = 0, curE = 0, curF = 1000;
+  let relativeE = false;
+  let absMode = true;
+  let filteredCount = 0;
+
+  for (let li = 0; li < totalLines; li++) {
+    // Strip comments and trim
+    let line = lines[li];
+    const semi = line.indexOf(';');
+    if (semi !== -1) line = line.substring(0, semi);
+    line = line.trim();
+    if (line.length === 0) continue;
+
+    // Fast first-char check
+    const first = line.charCodeAt(0);
+    // G commands
+    if (first === 71 || first === 103) { // 'G' or 'g'
+      const upper = line.toUpperCase();
+      // Extract command token
+      let cmdEnd = 1;
+      while (cmdEnd < upper.length && upper.charCodeAt(cmdEnd) >= 48 && upper.charCodeAt(cmdEnd) <= 57) cmdEnd++;
+      const cmd = upper.substring(0, cmdEnd);
+
+      if (cmd === 'G28') {
+        curX = 0; curY = 0; curZ = 0;
+        moves.push({ type: 'home', x: 0, y: 0, z: 0, x0:0,y0:0,z0:0,x1:0,y1:0,z1:0,e:0,f:curF });
+        continue;
+      }
+      if (cmd === 'G90') { absMode = true; continue; }
+      if (cmd === 'G91') { absMode = false; continue; }
+      if (cmd === 'G92') {
+        // Set position - commonly G92 E0
+        const ev = extractParam(upper, 'E');
+        if (!isNaN(ev)) curE = ev;
+        const xv = extractParam(upper, 'X'); if (!isNaN(xv)) curX = xv;
+        const yv = extractParam(upper, 'Y'); if (!isNaN(yv)) curY = yv;
+        const zv = extractParam(upper, 'Z'); if (!isNaN(zv)) curZ = zv;
+        continue;
+      }
+
+      if (cmd === 'G0' || cmd === 'G1') {
+        const xv = extractParam(upper, 'X');
+        const yv = extractParam(upper, 'Y');
+        const zv = extractParam(upper, 'Z');
+        const ev = extractParam(upper, 'E');
+        const fv = extractParam(upper, 'F');
+
+        let nx = curX, ny = curY, nz = curZ, ne = curE;
+        if (!isNaN(fv)) curF = fv;
+        if (absMode) {
+          if (!isNaN(xv)) nx = xv;
+          if (!isNaN(yv)) ny = yv;
+          if (!isNaN(zv)) nz = zv;
+        } else {
+          if (!isNaN(xv)) nx += xv;
+          if (!isNaN(yv)) ny += yv;
+          if (!isNaN(zv)) nz += zv;
+        }
+        if (!isNaN(ev)) {
+          ne = relativeE ? curE + ev : ev;
+        }
+
+        const extrusion = ne - curE;
+        moves.push({
+          type: extrusion > 0.001 ? 'extrude' : 'travel',
+          x0: curX, y0: curY, z0: curZ,
+          x1: nx, y1: ny, z1: nz,
+          e: extrusion,
+          f: curF,
+          z: nz
+        });
+
+        curX = nx; curY = ny; curZ = nz; curE = ne;
+        continue;
+      }
+
+      // Unsupported G command — silently skip
+      filteredCount++;
+      continue;
+    }
+
+    // M commands
+    if (first === 77 || first === 109) { // 'M' or 'm'
+      const upper = line.toUpperCase();
+      if (upper.startsWith('M82')) { relativeE = false; continue; }
+      if (upper.startsWith('M83')) { relativeE = true; continue; }
+      if (upper.startsWith('M104') || upper.startsWith('M109')) {
+        const sv = extractParam(upper, 'S');
+        if (!isNaN(sv)) hotendTarget = sv;
+        continue;
+      }
+      if (upper.startsWith('M140') || upper.startsWith('M190')) {
+        const sv = extractParam(upper, 'S');
+        if (!isNaN(sv)) bedTarget = sv;
+        continue;
+      }
+      // Unsupported M command — silently skip
+      filteredCount++;
+      continue;
+    }
+
+    // Any other line (T commands, comments, etc.) — silently skip
+    filteredCount++;
+  }
+
+  console.log(`Parsed ${moves.length} moves from ${totalLines} lines (${filteredCount} unsupported lines filtered)`);
+  return moves;
+}
+
+function analyzeMoves(moves) {
+  const layerSet = new Set();
+  let totalExt = 0;
+  moves.forEach(m => {
+    if (m.z !== undefined) layerSet.add(Math.round(m.z * 100));
+    if (m.e > 0) totalExt += m.e;
+  });
+  const layers = [...layerSet].sort((a, b) => a - b);
+  totalLayers = layers.length;
+  totalE = totalExt;
+}
+
+// Shared geometry for instanced rendering — a unit cylinder
+const TUBE_RADIAL_SEGS = 5;
+const TUBE_HEIGHT_SEGS = 1;
+const sharedTubeGeo = new THREE.CylinderGeometry(1, 1, 1, TUBE_RADIAL_SEGS, TUBE_HEIGHT_SEGS);
+sharedTubeGeo.rotateX(Math.PI / 2);
+
+// Batch buffer: accumulate segments, flush to merged geometry periodically
+const BATCH_SIZE = 2000; // merge every N segments into one mesh
+let batchPositions = [];
+let batchMatrices = [];
+let batchCount = 0;
+let currentBatchLayerZ = 0;
+
+const _pos = new THREE.Vector3();
+const _target = new THREE.Vector3();
+const _scale = new THREE.Vector3();
+const _mat4 = new THREE.Matrix4();
+const _up = new THREE.Vector3(0, 1, 0);
+const _quat = new THREE.Quaternion();
+
+function buildTubeSegment(x0, y0, z0, x1, y1, z1, radius, bedY) {
+  const topY = bedY || 11.6;
+  const sx = x0 - BED_W / 2, sy = z0 + topY, sz = -(y0 - BED_D / 2);
+  const ex = x1 - BED_W / 2, ey = z1 + topY, ez = -(y1 - BED_D / 2);
+
+  const dx = ex - sx, dy = ey - sy, dz = ez - sz;
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (len < 0.001) return null;
+
+  // Build matrix: position, orientation, scale
+  _pos.set((sx + ex) / 2, (sy + ey) / 2, (sz + ez) / 2);
+  _target.set(ex, ey, ez);
+  _scale.set(radius, radius, len);
+
+  // lookAt to get quaternion
+  _mat4.lookAt(_pos, _target, _up);
+  _quat.setFromRotationMatrix(_mat4);
+  _mat4.compose(_pos, _quat, _scale);
+
+  return _mat4.clone();
+}
+
+function addSegmentToBatch(x0, y0, z0, x1, y1, z1, radius, layerZ) {
+  const matrix = buildTubeSegment(x0, y0, z0, x1, y1, z1, radius, BED_TOP_Y);
+  if (!matrix) return;
+
+  batchMatrices.push(matrix);
+  batchCount++;
+  currentBatchLayerZ = layerZ;
+
+  if (batchCount >= BATCH_SIZE) {
+    flushBatch();
+  }
+}
+
+function flushBatch() {
+  if (batchCount === 0) return;
+
+  // Merge into a single geometry
+  const mergedGeo = new THREE.BufferGeometry();
+  const singleVerts = sharedTubeGeo.attributes.position.count;
+  const singleIdxCount = sharedTubeGeo.index.count;
+  const totalVerts = singleVerts * batchCount;
+  const totalIdx = singleIdxCount * batchCount;
+
+  const positions = new Float32Array(totalVerts * 3);
+  const normals = new Float32Array(totalVerts * 3);
+  const indices = new Uint32Array(totalIdx);
+
+  const srcPos = sharedTubeGeo.attributes.position.array;
+  const srcNorm = sharedTubeGeo.attributes.normal.array;
+  const srcIdx = sharedTubeGeo.index.array;
+  const tempVec = new THREE.Vector3();
+  const tempNorm = new THREE.Vector3();
+  const normalMat = new THREE.Matrix3();
+
+  for (let b = 0; b < batchCount; b++) {
+    const mat = batchMatrices[b];
+    normalMat.getNormalMatrix(mat);
+    const vOffset = b * singleVerts;
+    const pOffset = vOffset * 3;
+    const iOffset = b * singleIdxCount;
+
+    for (let v = 0; v < singleVerts; v++) {
+      tempVec.set(srcPos[v * 3], srcPos[v * 3 + 1], srcPos[v * 3 + 2]);
+      tempVec.applyMatrix4(mat);
+      positions[pOffset + v * 3] = tempVec.x;
+      positions[pOffset + v * 3 + 1] = tempVec.y;
+      positions[pOffset + v * 3 + 2] = tempVec.z;
+
+      tempNorm.set(srcNorm[v * 3], srcNorm[v * 3 + 1], srcNorm[v * 3 + 2]);
+      tempNorm.applyMatrix3(normalMat).normalize();
+      normals[pOffset + v * 3] = tempNorm.x;
+      normals[pOffset + v * 3 + 1] = tempNorm.y;
+      normals[pOffset + v * 3 + 2] = tempNorm.z;
+    }
+
+    for (let i = 0; i < singleIdxCount; i++) {
+      indices[iOffset + i] = srcIdx[i] + vOffset;
+    }
+  }
+
+  mergedGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  mergedGeo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  mergedGeo.setIndex(new THREE.BufferAttribute(indices, 1));
+
+  const mesh = new THREE.Mesh(mergedGeo, trailMat);
+  mesh.castShadow = false;
+  mesh.userData.layerZ = currentBatchLayerZ;
+  mesh.userData.isBatch = true;
+  printGroup.add(mesh);
+
+  layerZSet.add(currentBatchLayerZ);
+  if (!segmentsByLayer[currentBatchLayerZ]) segmentsByLayer[currentBatchLayerZ] = [];
+  segmentsByLayer[currentBatchLayerZ].push(mesh);
+  currentLayer = layerZSet.size;
+
+  // Reset batch
+  batchMatrices.length = 0;
+  batchCount = 0;
+}
+
+// ==================== PRINTING LOGIC ====================
+let interpFrom = new THREE.Vector3(0, 0, 0);
+let interpTo = new THREE.Vector3(0, 0, 0);
+let interpProgress = 1; // 1 = done, ready for next move
+let interpSpeed = 1;
+let currentMoveIsExtrude = false;
+let currentMoveData = null;
+let extrudeSegmentAdded = false;
+
+function updateHUD() {
+  const m = parsedMoves[printIndex] || parsedMoves[parsedMoves.length - 1] || { x1: 0, y1: 0, z1: 0 };
+  document.getElementById('hud-pos').textContent = `X:${(m.x1 || 0).toFixed(1)} Y:${(m.y1 || 0).toFixed(1)} Z:${(m.z1 || 0).toFixed(1)}`;
+  document.getElementById('hud-layer').textContent = `${currentLayer} / ${totalLayers}`;
+  document.getElementById('hud-line').textContent = `${printIndex} / ${parsedMoves.length}`;
+
+  const pct = parsedMoves.length > 0 ? Math.round((printIndex / parsedMoves.length) * 100) : 0;
+  document.getElementById('progress-bar-fill').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = pct + '%';
+
+  if (printing && !paused) {
+    document.getElementById('hud-status').textContent = 'Printing...';
+    document.getElementById('hud-status').style.color = '#66bb6a';
+  } else if (paused) {
+    document.getElementById('hud-status').textContent = 'Paused';
+    document.getElementById('hud-status').style.color = '#f0c070';
+  } else if (printIndex >= parsedMoves.length && parsedMoves.length > 0) {
+    document.getElementById('hud-status').textContent = 'Complete';
+    document.getElementById('hud-status').style.color = '#f5a623';
+  } else {
+    document.getElementById('hud-status').textContent = 'Idle';
+    document.getElementById('hud-status').style.color = '#e8d5a8';
+  }
+}
+
+function updateStats() {
+  document.getElementById('stat-lines').textContent = parsedMoves.length;
+  document.getElementById('stat-layers').textContent = totalLayers;
+  document.getElementById('stat-filament').textContent = totalE.toFixed(1) + 'mm';
+  const estSec = parsedMoves.length * 0.05;
+  document.getElementById('stat-time').textContent = estSec > 60 ? (estSec / 60).toFixed(1) + 'm' : estSec.toFixed(0) + 's';
+}
+
+function updateTemps() {
+  if (printing && !paused) {
+    hotendCurrent += (hotendTarget - hotendCurrent) * 0.02;
+    bedCurrent += (bedTarget - bedCurrent) * 0.015;
+  }
+  document.getElementById('temp-hotend').textContent = `${Math.round(hotendCurrent)}°C / ${hotendTarget}°C`;
+  document.getElementById('temp-bed').textContent = `${Math.round(bedCurrent)}°C / ${bedTarget}°C`;
+  document.getElementById('temp-hotend-bar').style.width = hotendTarget > 0 ? Math.min(100, (hotendCurrent / hotendTarget) * 100) + '%' : '0%';
+  document.getElementById('temp-bed-bar').style.width = bedTarget > 0 ? Math.min(100, (bedCurrent / bedTarget) * 100) + '%' : '0%';
+}
+
+// Move printhead — Z offset accounts for new bed height (11.6)
+const BED_TOP_Y = 11.6;
+function moveHead(x, y, z) {
+  const hx = x - BED_W / 2, hy = z + BED_TOP_Y + 18, hz = -(y - BED_D / 2) - (halfD + 4);
+  headGroup.position.set(hx, hy, hz + (halfD + 4));
+  headGroup.position.z = hz + (halfD + 4);
+  // X rail follows Z height
+  xRail.position.y = hy + 12;
+}
+
+function moveHeadSmooth(x, y, z) {
+  const hx = x - BED_W / 2, hy = z + BED_TOP_Y + 18;
+  headGroup.position.set(hx, hy, -(y - BED_D / 2));
+  xRail.position.y = hy + 12;
+}
+
+let layerZSet = new Set();
+let segmentsByLayer = {};
+
+function startNextMove() {
+  if (printIndex >= parsedMoves.length) {
+    printing = false;
+    interpProgress = 1;
+    updateHUD();
+    return false;
+  }
+  const m = parsedMoves[printIndex];
+  printIndex++;
+  currentMoveData = m;
+  extrudeSegmentAdded = false;
+
+  if (m.type === 'home') {
+    interpFrom.set(0, 0, 0);
+    interpTo.set(0, 0, 0);
+    interpProgress = 1;
+    moveHead(0, 0, 0);
+    updateHUD();
+    return true;
+  }
+
+  // Calculate world positions for interpolation
+  interpFrom.set(m.x0, m.y0, m.z0);
+  interpTo.set(m.x1, m.y1, m.z1);
+  currentMoveIsExtrude = m.type === 'extrude';
+
+  // Speed factor: distance-based so short moves are fast, long moves take proportional time
+  const dx = m.x1 - m.x0, dy = m.y1 - m.y0, dz = m.z1 - m.z0;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  // Base interpolation steps proportional to distance
+  // At speed 10%: ~60 frames per 10mm move. At 100%: ~6 frames per 10mm.
+  interpSpeed = Math.max(0.005, dist * 0.15);
+  interpProgress = 0;
+
+  updateHUD();
+  return true;
+}
+
+function tickInterpolation(dt) {
+  if (interpProgress >= 1) return;
+
+  // dt is fraction to advance per frame based on speed
+  const stepSize = dt / Math.max(0.01, interpSpeed);
+  interpProgress = Math.min(1, interpProgress + stepSize);
+
+  // Lerp gcode coords
+  const cx = interpFrom.x + (interpTo.x - interpFrom.x) * interpProgress;
+  const cy = interpFrom.y + (interpTo.y - interpFrom.y) * interpProgress;
+  const cz = interpFrom.z + (interpTo.z - interpFrom.z) * interpProgress;
+  moveHeadSmooth(cx, cy, cz);
+
+  // Add extrusion segment once interpolation completes
+  if (interpProgress >= 1 && currentMoveIsExtrude && !extrudeSegmentAdded && currentMoveData) {
+    extrudeSegmentAdded = true;
+    const m = currentMoveData;
+    const nozzleDia = parseFloat(document.getElementById('nozzle-dia').value) || 0.4;
+    addSegmentToBatch(m.x0, m.y0, m.z0, m.x1, m.y1, m.z1, nozzleDia * 0.6, Math.round(m.z1 * 100));
+  }
+}
+
+// ==================== PRESET GCODES ====================
+// All presets use Ender 3 coordinates: center at (110, 110), bed 220x220
+
+function generateCubeGCode() {
+  let g = 'G28\nM104 S200\nM140 S60\nG90\nM82\n';
+  const s = 40, cx = 110, cy = 110, lh = 0.2;
+  let e = 0;
+  for (let z = lh; z <= s; z += lh) {
+    g += `G1 Z${z.toFixed(2)} F600\n`;
+    const x0 = cx - s / 2, x1 = cx + s / 2, y0 = cy - s / 2, y1 = cy + s / 2;
+    e += 2.4; g += `G1 X${x0} Y${y0} E${e.toFixed(3)} F1200\n`;
+    e += 2.4; g += `G1 X${x1} Y${y0} E${e.toFixed(3)}\n`;
+    e += 2.4; g += `G1 X${x1} Y${y1} E${e.toFixed(3)}\n`;
+    e += 2.4; g += `G1 X${x0} Y${y1} E${e.toFixed(3)}\n`;
+    e += 2.4; g += `G1 X${x0} Y${y0} E${e.toFixed(3)}\n`;
+  }
+  return g;
+}
+
+function generateCylinderGCode() {
+  let g = 'G28\nM104 S200\nM140 S60\nG90\nM82\n';
+  const r = 30, cx = 110, cy = 110, lh = 0.2, segs = 48;
+  let e = 0;
+  for (let z = lh; z <= 50; z += lh) {
+    g += `G1 Z${z.toFixed(2)} F600\n`;
+    for (let i = 0; i <= segs; i++) {
+      const a = (i / segs) * Math.PI * 2;
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      e += 0.6;
+      g += `G1 X${x.toFixed(2)} Y${y.toFixed(2)} E${e.toFixed(3)}${i === 0 ? ' F1200' : ''}\n`;
+    }
+  }
+  return g;
+}
+
+function generatePyramidGCode() {
+  let g = 'G28\nM104 S200\nM140 S60\nG90\nM82\n';
+  const cx = 110, cy = 110, lh = 0.2, maxS = 60;
+  let e = 0;
+  for (let z = lh; z <= 50; z += lh) {
+    const s = maxS * (1 - z / 55);
+    if (s < 2) break;
+    g += `G1 Z${z.toFixed(2)} F600\n`;
+    const x0 = cx - s / 2, x1 = cx + s / 2, y0 = cy - s / 2, y1 = cy + s / 2;
+    e += 1.5; g += `G1 X${x0} Y${y0} E${e.toFixed(3)} F1200\n`;
+    e += 1.5; g += `G1 X${x1} Y${y0} E${e.toFixed(3)}\n`;
+    e += 1.5; g += `G1 X${x1} Y${y1} E${e.toFixed(3)}\n`;
+    e += 1.5; g += `G1 X${x0} Y${y1} E${e.toFixed(3)}\n`;
+    e += 1.5; g += `G1 X${x0} Y${y0} E${e.toFixed(3)}\n`;
+  }
+  return g;
+}
+
+function generateSpiralVaseGCode() {
+  let g = 'G28\nM104 S200\nM140 S60\nG90\nM82\n';
+  const r = 35, cx = 110, cy = 110, totalH = 60, turns = 100;
+  let e = 0;
+  const totalPts = turns * 48;
+  for (let i = 0; i <= totalPts; i++) {
+    const a = (i / 48) * Math.PI * 2;
+    const z = (i / totalPts) * totalH + 0.2;
+    const rr = r + Math.sin(z * 0.3) * 5;
+    const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+    e += 0.25;
+    g += `G1 X${x.toFixed(2)} Y${y.toFixed(2)} Z${z.toFixed(3)} E${e.toFixed(3)}${i === 0 ? ' F1200' : ''}\n`;
+  }
+  return g;
+}
+
+function generateStarGCode() {
+  let g = 'G28\nM104 S200\nM140 S60\nG90\nM82\n';
+  const cx = 110, cy = 110, lh = 0.2, ro = 40, ri = 18, pts = 5;
+  let e = 0;
+  for (let z = lh; z <= 35; z += lh) {
+    g += `G1 Z${z.toFixed(2)} F600\n`;
+    for (let i = 0; i <= pts * 2; i++) {
+      const a = (i / (pts * 2)) * Math.PI * 2 - Math.PI / 2;
+      const r = i % 2 === 0 ? ro : ri;
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      e += 1.0;
+      g += `G1 X${x.toFixed(2)} Y${y.toFixed(2)} E${e.toFixed(3)}${i === 0 ? ' F1200' : ''}\n`;
+    }
+    e += 1.0;
+    const a0 = -Math.PI / 2;
+    g += `G1 X${(cx + Math.cos(a0) * ro).toFixed(2)} Y${(cy + Math.sin(a0) * ro).toFixed(2)} E${e.toFixed(3)}\n`;
+  }
+  return g;
+}
+
+function generateWaveBoxGCode() {
+  let g = 'G28\nM104 S200\nM140 S60\nG90\nM82\n';
+  const cx = 110, cy = 110, lh = 0.2, s = 50, segs = 30;
+  let e = 0;
+  for (let z = lh; z <= 40; z += lh) {
+    g += `G1 Z${z.toFixed(2)} F600\n`;
+    const wave = Math.sin(z * 1.2) * 4;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const x = cx - s / 2 + t * s + Math.sin(t * Math.PI * 2 + z) * wave;
+      const y = cy - s / 2;
+      e += 0.4; g += `G1 X${x.toFixed(2)} Y${y.toFixed(2)} E${e.toFixed(3)}${i === 0 ? ' F1200' : ''}\n`;
+    }
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const x = cx + s / 2;
+      const y = cy - s / 2 + t * s + Math.sin(t * Math.PI * 2 + z) * wave;
+      e += 0.4; g += `G1 X${x.toFixed(2)} Y${y.toFixed(2)} E${e.toFixed(3)}\n`;
+    }
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const x = cx + s / 2 - t * s + Math.sin(t * Math.PI * 2 + z + 1) * wave;
+      const y = cy + s / 2;
+      e += 0.4; g += `G1 X${x.toFixed(2)} Y${y.toFixed(2)} E${e.toFixed(3)}\n`;
+    }
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const x = cx - s / 2;
+      const y = cy + s / 2 - t * s + Math.sin(t * Math.PI * 2 + z + 1) * wave;
+      e += 0.4; g += `G1 X${x.toFixed(2)} Y${y.toFixed(2)} E${e.toFixed(3)}\n`;
+    }
+  }
+  return g;
+}
+
+window.loadPreset = function(name) {
+  let gcode = '';
+  switch (name) {
+    case 'cube': gcode = generateCubeGCode(); break;
+    case 'cylinder': gcode = generateCylinderGCode(); break;
+    case 'pyramid': gcode = generatePyramidGCode(); break;
+    case 'spiral': gcode = generateSpiralVaseGCode(); break;
+    case 'star': gcode = generateStarGCode(); break;
+    case 'wave': gcode = generateWaveBoxGCode(); break;
+  }
+  document.getElementById('gcode-input').value = gcode;
+  resetPrint();
+  parsedMoves = parseGCode(gcode);
+  analyzeMoves(parsedMoves);
+  updateStats();
+  updateHUD();
+};
+
+window.startPrint = function() {
+  if (printing && !paused) return;
+  if (paused) { paused = false; updateHUD(); return; }
+  const gcode = document.getElementById('gcode-input').value.trim();
+  if (!gcode) return;
+  resetPrint();
+  parsedMoves = parseGCode(gcode);
+  analyzeMoves(parsedMoves);
+  updateStats();
+  // Update material color
+  trailMat.color.set(filamentColor);
+  spool.material.color.set(filamentColor);
+  printing = true;
+  paused = false;
+  updateHUD();
+};
+
+window.pausePrint = function() {
+  if (printing) paused = !paused;
+  updateHUD();
+};
+
+window.resetPrint = function() {
+  printing = false;
+  paused = false;
+  printIndex = 0;
+  currentLayer = 0;
+  hotendCurrent = 0;
+  bedCurrent = 0;
+  layerZSet.clear();
+  segmentsByLayer = {};
+  batchMatrices.length = 0;
+  batchCount = 0;
+  interpProgress = 1;
+  // Remove printed segments and dispose geometry
+  while (printGroup.children.length > 0) {
+    const c = printGroup.children[0];
+    if (c.geometry) c.geometry.dispose();
+    printGroup.remove(c);
+  }
+  moveHead(0, 0, 0);
+  updateHUD();
+};
+
+window.pickColor = function(el) {
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  filamentColor = el.dataset.color;
+  document.getElementById('color-picker').value = filamentColor;
+  trailMat.color.set(filamentColor);
+  spool.material.color.set(filamentColor);
+};
+
+window.setColor = function(c) {
+  filamentColor = c;
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+  trailMat.color.set(filamentColor);
+  spool.material.color.set(filamentColor);
+};
+
+window.onLayerSlider = function(val) {
+  const v = parseInt(val);
+  if (v >= 100 || val >= 100) {
+    maxLayerVisible = Infinity;
+    document.getElementById('layer-slider-val').textContent = 'All';
+  } else {
+    const sortedLayers = [...layerZSet].sort((a, b) => a - b);
+    const idx = Math.floor((v / 100) * sortedLayers.length);
+    maxLayerVisible = sortedLayers[idx] || Infinity;
+    document.getElementById('layer-slider-val').textContent = `Layer ${idx}`;
+  }
+  // Apply visibility — batched meshes use layerZ too
+  const children = printGroup.children;
+  for (let i = 0, l = children.length; i < l; i++) {
+    children[i].visible = children[i].userData.layerZ <= maxLayerVisible;
+  }
+};
+
+// Speed slider
+document.getElementById('speed-slider').addEventListener('input', function() {
+  printSpeed = parseInt(this.value);
+  document.getElementById('speed-val').textContent = printSpeed >= 1000 ? (printSpeed / 1000).toFixed(1) + 'k%' : printSpeed + '%';
+});
+
+// ==================== ANIMATION LOOP ====================
+let frameCount = 0;
+let moveAccumulator = 0;
+
+function animate() {
+  frameCount++;
+  controls.update();
+
+  // Smooth interpolated movement
+  if (printing && !paused) {
+    // Speed factor: how fast interpolation advances per frame
+    // At 1%: very slow crawl. At 100%: very fast.
+    const speedFactor = printSpeed <= 10
+      ? printSpeed * 0.08
+      : printSpeed <= 50
+        ? 0.8 + (printSpeed - 10) * 0.1
+        : printSpeed <= 100
+          ? 4.8 + (printSpeed - 50) * 0.2
+          : printSpeed <= 500
+            ? 14.8 + (printSpeed - 100) * 0.5
+          : printSpeed <= 1000
+            ? 214.8 + (printSpeed - 500) * 1.5
+          : printSpeed <= 5000
+            ? 964.8 + (printSpeed - 1000) * 3.0
+            : 12964.8 + (printSpeed - 5000) * 6.0;
+
+    // If current interpolation is done, start next move
+    if (interpProgress >= 1) {
+      // At high speeds, consume multiple moves instantly
+      if (speedFactor > 3) {
+        const skipCount = Math.min(Math.floor(speedFactor / 3), 10000);
+        const nozzleDia = parseFloat(document.getElementById('nozzle-dia').value) || 0.4;
+        for (let s = 0; s < skipCount; s++) {
+          if (interpProgress >= 1 && printIndex < parsedMoves.length) {
+            startNextMove();
+            if (interpSpeed < 0.5) {
+              interpProgress = 1;
+              if (currentMoveIsExtrude && !extrudeSegmentAdded && currentMoveData) {
+                extrudeSegmentAdded = true;
+                const m = currentMoveData;
+                addSegmentToBatch(m.x0, m.y0, m.z0, m.x1, m.y1, m.z1, nozzleDia * 0.6, Math.round(m.z1 * 100));
+              }
+              moveHeadSmooth(interpTo.x, interpTo.y, interpTo.z);
+            }
+          }
+        }
+        // Flush after bulk skip to keep geometry up to date
+        flushBatch();
+      }
+      if (interpProgress >= 1) {
+        startNextMove();
+      }
+    }
+
+    // Tick the interpolation
+    tickInterpolation(speedFactor);
+    updateTemps();
+    updateHUD();
+  }
+
+  // Flush any pending batch segments periodically
+  if (printing && !paused && batchCount > 0 && frameCount % 10 === 0) {
+    flushBatch();
+  }
+
+  // Rotate spool
+  if (printing && !paused) {
+    spool.rotation.x += 0.05;
+  }
+
+  // Subtle nozzle glow when printing (brass heats up)
+  const glowIntensity = printing && !paused ? 0.4 + Math.sin(frameCount * 0.1) * 0.15 : 0;
+  nozzle.material.emissive.set(0xff6600);
+  nozzle.material.emissiveIntensity = glowIntensity;
+
+  renderer.render(scene, camera);
+}
+renderer.setAnimationLoop(animate);
+
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = container.clientWidth / container.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(container.clientWidth, container.clientHeight);
+});
+
+// ==================== FILE UPLOAD ====================
+document.getElementById('gcode-file').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const fileInfo = document.getElementById('file-info');
+  const fileName = document.getElementById('file-name-display');
+  const fileStats = document.getElementById('file-stats');
+
+  fileName.textContent = file.name;
+  fileStats.innerHTML = `<span style="color:#f5a623;">Loading...</span> (${(file.size / 1024).toFixed(0)} KB)`;
+  fileInfo.style.display = 'block';
+
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const gcodeStr = ev.target.result;
+    const lineCount = gcodeStr.split('\n').length;
+
+    // For large files, don't put into textarea (would freeze the UI)
+    if (lineCount > 50000) {
+      document.getElementById('gcode-input').value = `; File: ${file.name}\n; ${lineCount.toLocaleString()} lines loaded from file\n; (content hidden for performance — file is parsed directly)`;
+      document.getElementById('gcode-input').dataset.fullGcode = gcodeStr;
+    } else {
+      document.getElementById('gcode-input').value = gcodeStr;
+      document.getElementById('gcode-input').dataset.fullGcode = '';
+    }
+
+    // Parse
+    resetPrint();
+    parsedMoves = parseGCode(gcodeStr);
+    analyzeMoves(parsedMoves);
+    updateStats();
+    updateHUD();
+
+    const extrudeMoves = parsedMoves.filter(m => m.type === 'extrude').length;
+    fileStats.innerHTML = `${lineCount.toLocaleString()} lines → <span style="color:#f5a623;">${parsedMoves.length.toLocaleString()}</span> moves (${extrudeMoves.toLocaleString()} extrusions, ${totalLayers} layers)`;
+  };
+  reader.readAsText(file);
+});
+
+document.getElementById('file-clear').addEventListener('click', function() {
+  document.getElementById('gcode-file').value = '';
+  document.getElementById('file-info').style.display = 'none';
+  document.getElementById('gcode-input').value = '';
+  document.getElementById('gcode-input').dataset.fullGcode = '';
+  resetPrint();
+  parsedMoves = [];
+  updateStats();
+  updateHUD();
+});
+
+// Patch startPrint to use stored gcode for large files
+const _origStartPrint = window.startPrint;
+window.startPrint = function() {
+  if (printing && !paused) return;
+  if (paused) { paused = false; updateHUD(); return; }
+
+  const fullGcode = document.getElementById('gcode-input').dataset.fullGcode;
+  const gcode = fullGcode || document.getElementById('gcode-input').value.trim();
+  if (!gcode) return;
+
+  resetPrint();
+  parsedMoves = parseGCode(gcode);
+  analyzeMoves(parsedMoves);
+  updateStats();
+  trailMat.color.set(filamentColor);
+  trailMat.emissive.set(filamentColor);
+  spool.material.color.set(filamentColor);
+  printing = true;
+  paused = false;
+  updateHUD();
+};
+
+// Load cube preset by default
+window.loadPreset('cube');
+</script>
+</body>
+</html>
